@@ -1,7 +1,7 @@
 // ----------------------------------------
 //
-//  volcamatic
-//	===============
+//  volcaload
+//	=========
 //
 //  Sample uploader for Korg Volca Sample
 //
@@ -19,120 +19,35 @@
 // For C99!
 #define _POSIX_C_SOURCE 2
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <libgen.h>
-#include <stdio.h>
 
 #include "korg_syro_volcasample.h"
-#include "korg_syro_comp.h"
-
-#define WAVFMT_POS_ENCODE	0x00
-#define WAVFMT_POS_CHANNEL	0x02
-#define WAVFMT_POS_FS		0x04
-#define WAVFMT_POS_BIT		0x0E
-
-#define WAV_POS_RIFF_SIZE	0x04
-#define WAV_POS_WAVEFMT		0x08
-#define WAV_POS_DATA_SIZE	0x28
-
-static const uint8_t wav_header[] = {
-	'R' , 'I' , 'F',  'F',		// 'RIFF'
-	0x00, 0x00, 0x00, 0x00,		// Size (data size + 0x24)
-	'W',  'A',  'V',  'E',		// 'WAVE'
-	'f',  'm',  't',  ' ',		// 'fmt '
-	0x10, 0x00, 0x00, 0x00,		// Fmt chunk size
-	0x01, 0x00,					// encode(wav)
-	0x02, 0x00,					// channel = 2
-	0x44, 0xAC, 0x00, 0x00,		// Fs (44.1kHz)
-	0x10, 0xB1, 0x02, 0x00,		// Bytes per sec (Fs * 4)
-	0x04, 0x00,					// Block Align (2ch,16Bit -> 4)
-	0x10, 0x00,					// 16Bit
-	'd',  'a',  't',  'a',		// 'data'
-	0x00, 0x00, 0x00, 0x00		// data size(bytes)
-};
-
+#include "volcautils.h"
 
 
 // ----------------------------------------
-// Decoding helpers
+// Print samples to update
 // ----------------------------------------
-
-static void set_32bit_value(uint8_t *ptr, uint32_t data) {
-	for (int i = 0; i < 4; i++) {
-		*ptr++ = (uint8_t) data;
-		data >>= 8;
-	}
+void print_samples_to_load(bool to_load[]) {
+  printf("+----------------------------------------+\n");
+  for (int i = 0; i < 10; i++) {
+    printf("|");
+    for (int j = 0; j < 10; j++) {
+      to_load[i*10 + j]
+        ? printf(GREEN "[%02d]" RESET, i*10 + j)
+        : printf(" %02d ", i*10 + j);
+    }
+    printf("|\n");
+  }
+  printf("+----------------------------------------+\n");
 }
-
-
-static uint32_t get_32bit_value(uint8_t *ptr) {
-	uint32_t data = 0;
-	for (int i = 0; i < 4; i++) {
-		data <<= 8;
-		data |= (uint32_t) ptr[3-i];
-	}
-	return data;
-}
-
-static uint16_t get_16bit_value(uint8_t *ptr) {
-	uint16_t data;
-	data = (uint16_t) ptr[1];
-	data <<= 8;
-	data |= (uint16_t) ptr[0];
-	return data;
-}
-
 
 // ----------------------------------------
-// Files I/O
-// ----------------------------------------
-static uint8_t *read_file(char *filename, uint32_t *psize) {
-
-  FILE *fp;
-	uint8_t *buffer;
-	uint32_t size;
-
-	fp = fopen((const char *) filename, "rb");
-
-  if (!fp) {
-		printf("File not found: %s\n", filename);
-		return NULL;
-	}
-
-	fseek(fp, 0, SEEK_END);
-	size = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-
-	buffer = malloc(size);
-	fread(buffer, 1, size, fp);
-	fclose(fp);
-
-	*psize = size;
-	return buffer;
-}
-
-static bool write_file(char *filename, uint8_t *buffer, uint32_t size) {
-
-	FILE *fp;
-
-  fp = fopen(filename, "wb");
-
-  if (!fp) {
-		printf("Error opening file: %s\n", filename);
-		return false;
-	}
-
-	fwrite(buffer, 1, size, fp);
-	fclose(fp);
-
-	return true;
-}
-
-
-// ----------------------------------------
-// Sample loader
+// Load a single sample file into a buffer
 // ----------------------------------------
 static int load_sample_file(char *filename, SyroData *syro_data) {
 
@@ -244,25 +159,10 @@ static int load_sample_file(char *filename, SyroData *syro_data) {
 	return payload_size;
 }
 
-
-// ----------------------------------------
-// Deallocate SyroData
-// ----------------------------------------
-static void free_syrodata(SyroData *syro_data, int samples_count) {
-	for (int i = 0; i < samples_count; i++) {
-		if (syro_data->pData) {
-			free(syro_data->pData);
-			syro_data->pData = NULL;
-		}
-		syro_data++;
-	}
-}
-
-
 // ----------------------------------------
 // Print usage message
 // ----------------------------------------
-void print_usage(char *bin) {
+static void print_usage(char *bin) {
   printf(
     "\nUsage: %s [OPTIONS] sample1 sample2 ..."
     "\nSample uploader for Korg Volca Sample"
@@ -272,10 +172,9 @@ void print_usage(char *bin) {
     "\n"
     "\nOptional arguments:"
     "\n  -o [FILE]   specify the output file name (default: \"syro.wav\")"
-    "\n"
-    , bin);
+    "\n",
+    bin);
 }
-
 
 // ----------------------------------------
 // Main
@@ -290,7 +189,7 @@ int main(int argc, char **argv) {
 	int16_t left, right;
 	uint32_t size_dest, frame, write_pos;
 	int sample_number, samples_count = 0, tot_samples_bytes = 0;
-
+  bool to_load[100] = { false };
 
   // Parse command line options
   int opt;
@@ -307,7 +206,6 @@ int main(int argc, char **argv) {
     }
   }
 
-
   // Load each command line sample into the buffer
   for (int sample_arg = optind; sample_arg < argc; sample_arg++) {
 
@@ -317,8 +215,9 @@ int main(int argc, char **argv) {
     if (sscanf(basename(sample_path), "%d", &sample_number) == 1) {
 
       // Alert about invalid sample numbers
-      if (sample_number < 00 || sample_number > 99) {
+      if (!VALID(sample_number)) {
         printf("Ignoring: %s (bad sample number)", sample_path);
+        continue;
       }
 
       int sample_bytes = load_sample_file(sample_path, syro_data_ptr);
@@ -333,11 +232,11 @@ int main(int argc, char **argv) {
 
       syro_data_ptr++;
       samples_count++;
+      to_load[sample_number] = true;
       tot_samples_bytes += sample_bytes;
     }
 
   }
-
 
 	if (!samples_count) {
 		printf("Nothing to see here\n");
@@ -347,7 +246,7 @@ int main(int argc, char **argv) {
 	// Start conversion
 	status = SyroVolcaSample_Start(&handle, syro_data, samples_count, 0, &frame);
 	if (status != Status_Success) {
-		printf("Error starting conversion: %d\n", status);
+		printf("Error starting Syro stream conversion: %d\n", status);
 		free_syrodata(syro_data, samples_count);
 		return 1;
 	}
@@ -372,12 +271,13 @@ int main(int argc, char **argv) {
 		frame--;
 	}
 
-  printf("Loaded %d samples [%d bytes] [~%.2f%%]\n",
-         samples_count, tot_samples_bytes, (100.0 * tot_samples_bytes) / 4194304);
-
   // End conversion
   SyroVolcaSample_End(handle);
 	free_syrodata(syro_data, samples_count);
+
+  printf("Loaded %d samples [%d bytes] [~%.2f%% memory]\n",
+         samples_count, tot_samples_bytes, (100.0 * tot_samples_bytes) / 4194304);
+  print_samples_to_load(to_load);
 
 	// Write the output file
   printf("Writing Syro output to %s\n", outfile);

@@ -1,24 +1,28 @@
-TARGET = volcamatic
-LIBS = -lm
-CC = gcc
-CFLAGS = -g -Wall
+VOLCALOAD = volcaload
+VOLCAERASE = volcaerase
+
+TARGETS = $(VOLCALOAD) $(VOLCAERASE)
+
+CC     = gcc
+CFLAGS = -g -Wall -O3
 
 .PHONY: default all clean
 
-default: $(TARGET)
+default: $(TARGETS)
 all: default
 
-OBJECTS = $(patsubst %.c, %.o, $(wildcard *.c))
+SHAREDC = $(filter-out $(patsubst %, %.c, $(TARGETS)), $(wildcard *.c))
+OBJECTS = $(patsubst %.c, %.o, $(SHAREDC))
 HEADERS = $(wildcard *.h)
 
 %.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-.PRECIOUS: $(TARGET) $(OBJECTS)
+$(TARGETS): % : %.c $(OBJECTS)
+	$(CC) $@.c $(OBJECTS) $(CFLAGS) -o $@
 
-$(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -Wall $(LIBS) -o $@
+.PRECIOUS: $(TARGETS) $(OBJECTS)
 
 clean:
 	rm -f *.o
-	rm -f $(TARGET)
+	rm -f $(TARGETS)
