@@ -55,6 +55,7 @@ static void print_usage(char *bin) {
     "\n"
     "\nOptional arguments:"
     "\n  -o [FILE]   specify the output file name (default: \"syro.wav\")"
+    "\n  -t          print a table with the samples to modify"
     "\n",
     bin);
 }
@@ -74,16 +75,20 @@ int main(int argc, char **argv) {
 	uint32_t size_dest, frame, write_pos;
 	int to_erase_count = 0;
   bool to_erase[100] = { false };
+  bool print_table = false;
 
 
   // Parse command line options
   int opt;
   char *outfile = "syro.wav";
 
-  while ((opt = getopt (argc, argv, "o:")) != -1){
+  while ((opt = getopt (argc, argv, "o:t")) != -1){
     switch (opt) {
     case 'o':
       outfile = optarg;
+      break;
+    case 't':
+      print_table = true;
       break;
     case '?':
       print_usage(argv[0]);
@@ -107,24 +112,27 @@ int main(int argc, char **argv) {
           to_erase_count++;
         }
       } else {
-        printf("Invalid interval: %s\n", arg);
+        printf("invalid interval: %s\n", arg);
         return 1;
       }
     } else if (sscanf(arg, "%d", &n1) == 1 && VALID(n1)) {
       to_erase[n1] = true;
       to_erase_count++;
     } else {
-      printf("Invalid input: %s\n", arg);
+      printf("invalid input: %s\n", arg);
       return 1;
     }
   }
 
-	if (!to_erase_count) {
-		printf("Nothing to erase here\n");
+	if (to_erase_count) {
+    printf("marking %d samples to be erased\n", to_erase_count);
+    if (print_table) print_samples_to_erase(to_erase);
+	} else {
+		printf("nothing to erase here\n");
 		return 1;
-	}
+  }
 
-  // Load each sample to erase into the Syro stream
+  // Load each sample to erase into the buffer
   for (int sample_number = 0; sample_number < 100; sample_number++) {
     if (to_erase[sample_number]) {
       syro_data_ptr->pData = NULL;
@@ -136,13 +144,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  printf("Marking %d samples to be erased:\n", to_erase_count);
-  print_samples_to_erase(to_erase);
-
 	// Start conversion
+  printf("starting Syro stream conversion... ");
 	status = SyroVolcaSample_Start(&handle, syro_data, to_erase_count, 0, &frame);
 	if (status != Status_Success) {
-		printf("Error starting Syro stream conversion: %d\n", status);
+		printf("error starting conversion: %d\n", status);
 		free_syrodata(syro_data, to_erase_count);
 		return 1;
 	}
@@ -170,10 +176,11 @@ int main(int argc, char **argv) {
   // End conversion
   SyroVolcaSample_End(handle);
 	free_syrodata(syro_data, to_erase_count);
+  printf("ok!\n");
 
 	// Write the output file
-  printf("Writing Syro output to %s\n", outfile);
-	if (write_file(outfile, buf_dest, size_dest)) printf("Done!\n");
+  printf("writing Syro output to %s... ", outfile);
+	if (write_file(outfile, buf_dest, size_dest)) printf("ok!\n");
 
 	free(buf_dest);
 	return 0;

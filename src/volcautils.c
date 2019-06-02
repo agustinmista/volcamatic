@@ -61,11 +61,12 @@ uint8_t *read_file(char *filename, uint32_t *psize) {
   FILE *fp;
 	uint8_t *buffer;
 	uint32_t size;
+  int read;
 
 	fp = fopen((const char *) filename, "rb");
 
   if (!fp) {
-		printf("File not found: %s\n", filename);
+		printf("error! file not found\n");
 		return NULL;
 	}
 
@@ -74,8 +75,14 @@ uint8_t *read_file(char *filename, uint32_t *psize) {
 	fseek(fp, 0, SEEK_SET);
 
 	buffer = malloc(size);
-	fread(buffer, 1, size, fp);
-	fclose(fp);
+
+  read = fread(buffer, 1, size, fp);
+  if (read < size) {
+		printf("error! could not read file\n");
+		return NULL;
+  }
+
+  fclose(fp);
 
 	*psize = size;
 	return buffer;
@@ -88,7 +95,7 @@ int write_file(char *filename, uint8_t *buffer, uint32_t size) {
   fp = fopen(filename, "wb");
 
   if (!fp) {
-		printf("Error opening file: %s\n", filename);
+		printf("error opening file\n");
 		return 0;
 	}
 

@@ -49,14 +49,29 @@ void print_samples_to_load(bool to_load[]) {
 // ----------------------------------------
 // Load a single sample file into a buffer
 // ----------------------------------------
-static int load_sample_file(char *filename, SyroData *syro_data) {
+static int load_sample(char *filename, SyroData *syro_data, bool *to_load) {
 
 	uint8_t *src, *poss;
 	uint16_t channel_count, sample_byte, bit_depth;
   int16_t *posd;
 	uint32_t wav_pos, wav_frames, frame_count, file_size, payload_size;
   int32_t data, datf;
+  int sample_number;
 
+  printf("loading %s... ", basename(filename));
+
+  // Validate file name
+  if (sscanf(basename(filename), "%d", &sample_number) != 1) {
+    printf("error! can't parse sample number\n");
+    return 0;
+  }
+
+  if (!VALID(sample_number)) {
+    printf("error! sample number is our of range (0-99)\n");
+    return 0;
+  }
+
+  // Read the file contents
   src = read_file(filename, &file_size);
 	if (!src) return 0;
 
@@ -68,7 +83,7 @@ static int load_sample_file(char *filename, SyroData *syro_data) {
 	}
 
 	if (memcmp(src, wav_header, 4)) {
-		printf("error!, missing 'RIFF' header\n");
+		printf("error! missing 'RIFF' header\n");
 		free(src);
 		return 0;
 	}
@@ -95,7 +110,7 @@ static int load_sample_file(char *filename, SyroData *syro_data) {
 	}
 
 
-  bit_depth = get_16bit_value(src+wav_pos+8+WAVFMT_POS_BIT);
+  bit_depth = get_16bit_value(src + wav_pos + 8 + WAVFMT_POS_BIT);
   if ((bit_depth != 16) && (bit_depth != 24)) {
     printf("error! invalid bit depth: %d (supported: 16,24)\n", bit_depth);
     free(src);
@@ -105,21 +120,26 @@ static int load_sample_file(char *filename, SyroData *syro_data) {
   sample_byte = bit_depth / 8;
 	wav_frames = get_32bit_value(src + wav_pos + 8 + WAVFMT_POS_FS);
 
-
   while (true) {
     payload_size = get_32bit_value(src + wav_pos + 4);
-		if (!memcmp((src+wav_pos), "data", 4)) break;
+		if (!memcmp(src + wav_pos, "data", 4)) break;
 
 		wav_pos += payload_size + 8;
 		if (wav_pos + 8 > file_size) {
-			printf("error! missing 'data' header.\n");
+			printf("error! missing 'data' header\n");
 			free(src);
 			return 0;
 		}
 	}
 
+	if (!payload_size) {
+		printf("error! empty payload\n");
+		free(src);
+		return 0;
+	}
+
 	if (wav_pos + payload_size + 8 > file_size) {
-		printf("error! payload size mismatch.\n");
+		printf("error! payload size mismatch\n");
 		free(src);
 		return 0;
 	}
@@ -151,11 +171,15 @@ static int load_sample_file(char *filename, SyroData *syro_data) {
 
   } while (--frame_count);
 
+  syro_data->DataType = DataType_Sample_Liner;
+  syro_data->Number = sample_number;
 	syro_data->Size = payload_size;
 	syro_data->Fs = wav_frames;
 	syro_data->SampleEndian = LittleEndian;
+  to_load[sample_number] = true;
 
   free(src);
+  printf("ok! [%d bytes] [N=%02d]\n", payload_size, sample_number);
 	return payload_size;
 }
 
@@ -172,6 +196,7 @@ static void print_usage(char *bin) {
     "\n"
     "\nOptional arguments:"
     "\n  -o [FILE]   specify the output file name (default: \"syro.wav\")"
+    "\n  -t          print a table with the samples to modify"
     "\n",
     bin);
 }
@@ -188,17 +213,21 @@ int main(int argc, char **argv) {
 	uint8_t *buf_dest;
 	int16_t left, right;
 	uint32_t size_dest, frame, write_pos;
-	int sample_number, samples_count = 0, tot_samples_bytes = 0;
+	int samples_count = 0, tot_samples_bytes = 0;
   bool to_load[100] = { false };
+  bool print_table = false;
 
   // Parse command line options
   int opt;
   char *outfile = "syro.wav";
 
-  while ((opt = getopt (argc, argv, "o:")) != -1){
+  while ((opt = getopt (argc, argv, "o:t")) != -1){
     switch (opt) {
     case 'o':
       outfile = optarg;
+      break;
+    case 't':
+      print_table = true;
       break;
     case '?':
       print_usage(argv[0]);
@@ -210,43 +239,31 @@ int main(int argc, char **argv) {
   for (int sample_arg = optind; sample_arg < argc; sample_arg++) {
 
     char *sample_path = argv[sample_arg];
+    int sample_bytes;
 
-    // Check that the sample starts with a number
-    if (sscanf(basename(sample_path), "%d", &sample_number) == 1) {
-
-      // Alert about invalid sample numbers
-      if (!VALID(sample_number)) {
-        printf("Ignoring: %s (bad sample number)", sample_path);
-        continue;
-      }
-
-      int sample_bytes = load_sample_file(sample_path, syro_data_ptr);
-      if (!sample_bytes)  { continue; }
-
-      // Store the sample data into the buffer
-      syro_data_ptr->DataType = DataType_Sample_Liner;
-      syro_data_ptr->Number = sample_number;
-
-      printf("Loaded sample [%02d] from: %s (%d bytes)\n",
-             sample_number, sample_path, sample_bytes);
-
+    // Try loading the wav frames into the buffer
+    if ((sample_bytes = load_sample(sample_path, syro_data_ptr, to_load))) {
       syro_data_ptr++;
       samples_count++;
-      to_load[sample_number] = true;
       tot_samples_bytes += sample_bytes;
     }
-
   }
 
-	if (!samples_count) {
-		printf("Nothing to see here\n");
+	if (samples_count) {
+    printf("found %d samples to load [%d bytes] [~%.2f%% memory]\n",
+           samples_count, tot_samples_bytes,
+           (100.0 * tot_samples_bytes) / 4194304);
+    if (print_table) print_samples_to_load(to_load);
+	} else {
+		printf("nothing to load here\n");
 		return 1;
-	}
+  }
 
-	// Start conversion
-	status = SyroVolcaSample_Start(&handle, syro_data, samples_count, 0, &frame);
+  // Start conversion
+  printf("starting Syro stream conversion... ");
+  status = SyroVolcaSample_Start(&handle, syro_data, samples_count, 0, &frame);
 	if (status != Status_Success) {
-		printf("Error starting Syro stream conversion: %d\n", status);
+		printf("error starting conversion: %d\n", status);
 		free_syrodata(syro_data, samples_count);
 		return 1;
 	}
@@ -274,14 +291,11 @@ int main(int argc, char **argv) {
   // End conversion
   SyroVolcaSample_End(handle);
 	free_syrodata(syro_data, samples_count);
-
-  printf("Loaded %d samples [%d bytes] [~%.2f%% memory]\n",
-         samples_count, tot_samples_bytes, (100.0 * tot_samples_bytes) / 4194304);
-  print_samples_to_load(to_load);
+  printf("ok!\n");
 
 	// Write the output file
-  printf("Writing Syro output to %s\n", outfile);
-	if (write_file(outfile, buf_dest, size_dest)) printf("Done!\n");
+  printf("writing Syro output to %s... ", outfile);
+	if (write_file(outfile, buf_dest, size_dest)) printf("ok!\n");
 
 	free(buf_dest);
 	return 0;
