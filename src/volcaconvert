@@ -1,0 +1,107 @@
+## ----------------------------------------
+##
+##  volcaconvert
+##	============
+##
+##  Sample converter for Korg Volca Sample
+##
+##  author: Agustín Mista (GitHub: @agustinmista)
+##  date: 2019 June 1st
+##  url: http://github.com/agustinmista/volcamatic
+##  license: MIT license
+##
+## ----------------------------------------
+
+#!/bin/bash
+
+SCRIPT_PATH="$(readlink -f $0)"
+SCRIPT_NAME="$(basename $SCRIPT_PATH)"
+
+OUTPUT_EXT=volca
+SPEED=1
+CONVERTED=0
+ERRORED=0
+
+usage() {
+    cat << EOF
+Usage: $SCRIPT_NAME [OPTIONS] FILES
+Converts a sound file into the WAV format supported by the Korg Volca Sample
+
+Options:
+  -s SPEED    resample the file at a given speed
+  -h          print this help message"
+EOF
+}
+
+TEMP=$(getopt --options s:h --name $SCRIPT_NAME -- "$@")
+
+eval set -- "$TEMP"
+
+# No options supplied
+[ $# -le 1 ] && { usage; exit 1; }
+
+# Parse options
+while true; do
+    case "$1" in
+        -s)
+            SPEED="$2"
+            shift 2
+            ;;
+        -h)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+
+if [ $# -eq 0 ]; then
+    echo "nothing to convert here"
+    exit 0
+fi
+
+if [ $SPEED -ne 1 ]; then
+    echo "resampling samples at ${SPEED}x speed"
+fi
+
+while test $# -gt 0; do
+    printf "resampling $1... "
+    if [ $SPEED -ne 1 ]; then
+        OUTFILE=$1.${SPEED}x.$OUTPUT_EXT
+
+        ffmpeg -y -i $1 \
+               -f wav \
+               -acodec pcm_s16le \
+               -filter:a "atempo=$SPEED" \
+               -ar 44100 \
+               $OUTFILE 2> $1.log
+    else
+        OUTFILE=$1.$OUTPUT_EXT
+        ffmpeg -y -i $1 \
+               -f wav \
+               -acodec pcm_s16le \
+               -ar 44100 \
+               $OUTFILE 2> $1.log
+    fi
+
+    if [ $? -eq 0 ]; then
+        SIZE=$(wc -c $OUTFILE | awk '{print $1}')
+        printf "ok! [%s bytes]\n" $SIZE
+        let "CONVERTED+=1"
+        rm $1.log
+    else
+        printf "error! see $1.log for more info\n"
+        let "ERRORED+=1"
+    fi
+
+    shift
+done
+
+echo "done! [$CONVERTED samples converted] [$ERRORED errors]"

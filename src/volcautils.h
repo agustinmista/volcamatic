@@ -5,7 +5,7 @@
 #ifndef __VOLCAUTILS_H__
 #define __VOLCAUTILS_H__
 
-#include "korg_syro_volcasample.h"
+#include "korg/korg_syro_volcasample.h"
 
 #define WAVFMT_POS_ENCODE	 0x00
 #define WAVFMT_POS_CHANNEL 0x02

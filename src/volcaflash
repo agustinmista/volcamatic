@@ -1,0 +1,77 @@
+## ----------------------------------------
+##
+##  volcaflash
+##	==========
+##
+##  Simple Syro player for Korg Volca Sample
+##
+##  author: Agustín Mista (GitHub: @agustinmista)
+##  date: 2019 June 1st
+##  url: http://github.com/agustinmista/volcamatic
+##  license: MIT license
+##
+## ----------------------------------------
+
+#!/bin/bash
+
+SCRIPT_PATH="$(readlink -f $0)"
+SCRIPT_NAME="$(basename $SCRIPT_PATH)"
+
+TERM_COLS=$(tput cols)
+
+usage() {
+    cat << EOF
+Usage: $SCRIPT_NAME [OPTIONS] SYRO_FILE
+Plays a Syro stream file used to flash a Korg Volca Sample
+
+Options:
+  -h          print this help message"
+EOF
+}
+
+TEMP=$(getopt --options h --name $SCRIPT_NAME -- "$@")
+
+eval set -- "$TEMP"
+
+# No options supplied
+[ $# -le 1 ] && { usage; exit 1; }
+
+# Parse options
+while true; do
+    case "$1" in
+        -h)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+
+if [ $# -eq 0 ]; then
+    echo "nothing to flash here"
+    exit 0
+fi
+
+DURATION=$(ffprobe -i $1 -show_entries format=duration -v quiet -of csv="p=0")
+PROGRESS_SLEEP=$(awk "BEGIN {print ($DURATION / $TERM_COLS)}")
+
+# Spawn the player process
+aplay -q $1 & PID=$!
+echo "playing $1..."
+
+# While process is running...
+for i in `seq 1 $TERM_COLS`; do
+    printf  "█"
+    sleep $PROGRESS_SLEEP
+done
+printf "\n"
+
+wait $PID
+echo "done!"

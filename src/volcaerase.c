@@ -25,7 +25,7 @@
 #include <string.h>
 #include <libgen.h>
 
-#include "korg_syro_volcasample.h"
+#include "korg/korg_syro_volcasample.h"
 #include "volcautils.h"
 
 // ----------------------------------------
@@ -54,8 +54,9 @@ static void print_usage(char *bin) {
     "\nSample eraser for Korg Volca Sample"
     "\n"
     "\nOptional arguments:"
-    "\n  -o [FILE]   specify the output file name (default: \"syro.wav\")"
+    "\n  -o FILE     specify the output file name (default: \"syro.wav\")"
     "\n  -t          print a table with the samples to modify"
+    "\n  -h          print this help message"
     "\n",
     bin);
 }
@@ -82,7 +83,7 @@ int main(int argc, char **argv) {
   int opt;
   char *outfile = "syro.wav";
 
-  while ((opt = getopt (argc, argv, "o:t")) != -1){
+  while ((opt = getopt (argc, argv, "o:th")) != -1){
     switch (opt) {
     case 'o':
       outfile = optarg;
@@ -90,6 +91,7 @@ int main(int argc, char **argv) {
     case 't':
       print_table = true;
       break;
+    case 'h':
     case '?':
       print_usage(argv[0]);
       return 1;
@@ -166,10 +168,10 @@ int main(int argc, char **argv) {
 	write_pos = sizeof(wav_header);
 	while (frame) {
 		SyroVolcaSample_GetSample(handle, &left, &right);
-		buf_dest[write_pos++] = (uint8_t)left;
-		buf_dest[write_pos++] = (uint8_t)(left >> 8);
-		buf_dest[write_pos++] = (uint8_t)right;
-		buf_dest[write_pos++] = (uint8_t)(right >> 8);
+		buf_dest[write_pos++] = (uint8_t) left;
+		buf_dest[write_pos++] = (uint8_t) (left >> 8);
+		buf_dest[write_pos++] = (uint8_t) right;
+		buf_dest[write_pos++] = (uint8_t) (right >> 8);
 		frame--;
 	}
 
